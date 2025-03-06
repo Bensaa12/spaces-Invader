@@ -69,6 +69,20 @@
       border: 2px solid #00BFFF;
       color: white;
     }
+    
+    /* Sound status indicator */
+    #sound-status {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      color: white;
+      background-color: rgba(0,0,0,0.7);
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      font-size: 12px;
+      z-index: 9999;
+    }
   </style>
   <!-- Include p5.js library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
@@ -94,5 +108,117 @@
 </head>
 <body>
   <!-- p5.js will create the canvas here -->
+  <div id="sound-status">Sound: Checking...</div>
 </body>
+<script>
+  // Sound file tester
+  window.addEventListener('load', function() {
+    console.log("Running sound file accessibility test...");
+    let statusDiv = document.getElementById('sound-status');
+    let statusText = "Sound files:";
+    
+    // Check if p5.sound is loaded
+    if (typeof p5 === 'undefined') {
+      console.error("p5.js not loaded!");
+      statusDiv.innerHTML = "ERROR: p5.js not loaded";
+      statusDiv.style.backgroundColor = "rgba(255,0,0,0.7)";
+      return;
+    }
+    
+    if (typeof p5.SoundFile === 'undefined') {
+      console.error("p5.sound library not loaded!");
+      statusDiv.innerHTML = "ERROR: p5.sound not loaded";
+      statusDiv.style.backgroundColor = "rgba(255,0,0,0.7)";
+      return;
+    }
+    
+    console.log("p5.sound is available");
+    
+    // Create a sound tester that will check each file
+    function checkSoundFile(path, index) {
+      return new Promise((resolve) => {
+        const audio = new Audio(path);
+        
+        // Set a timeout in case the file never loads or errors
+        const timeout = setTimeout(() => {
+          console.error(`Timeout loading: ${path}`);
+          resolve({ path, status: 'timeout' });
+        }, 5000);
+        
+        audio.addEventListener('canplaythrough', () => {
+          clearTimeout(timeout);
+          console.log(`✅ Sound file accessible: ${path}`);
+          resolve({ path, status: 'success' });
+        });
+        
+        audio.addEventListener('error', (e) => {
+          clearTimeout(timeout);
+          console.error(`❌ Sound file not found: ${path}`, e);
+          resolve({ path, status: 'error' });
+        });
+        
+        // Force load attempt
+        audio.load();
+      });
+    }
+    
+    // List of sound files to test
+    const soundFiles = [
+      'sounds/shoot.mp3', 
+      'sounds/explosion.mp3',
+      'sounds/powerup.mp3',
+      'sounds/gameover.mp3',
+      'sounds/background.mp3'
+    ];
+    
+    // Test sound files in parallel
+    Promise.all(soundFiles.map(checkSoundFile))
+      .then(results => {
+        let successCount = 0;
+        let errorCount = 0;
+        
+        results.forEach(result => {
+          const fileName = result.path.split('/').pop();
+          if (result.status === 'success') {
+            successCount++;
+            statusText += `<br>✅ ${fileName}`;
+          } else {
+            errorCount++;
+            statusText += `<br>❌ ${fileName}`;
+          }
+        });
+        
+        // Update status display
+        statusDiv.innerHTML = statusText;
+        
+        if (errorCount > 0) {
+          statusDiv.style.backgroundColor = "rgba(255,0,0,0.7)";
+          console.error(`${errorCount} sound files failed to load.`);
+        } else {
+          statusDiv.style.backgroundColor = "rgba(0,128,0,0.7)";
+          console.log("All sound files are accessible");
+          
+          // Auto-hide status after 10 seconds if all files loaded successfully
+          setTimeout(() => {
+            statusDiv.style.opacity = "0.5";
+            
+            // Add click to hide
+            statusDiv.addEventListener('click', function() {
+              this.style.display = 'none';
+            });
+          }, 10000);
+        }
+      });
+      
+    // Add instructions to debug area
+    setTimeout(() => {
+      console.log("%c📢 SOUND TROUBLESHOOTING TIPS 📢", "font-size: 16px; font-weight: bold; color: #00BFFF;");
+      console.log("1. Make sure all sound files are in the 'sounds' folder");
+      console.log("2. Check that filenames match exactly (case-sensitive!)");
+      console.log("3. Click the 'ENABLE SOUND' button when it appears");
+      console.log("4. Some browsers need a click/tap before sounds can play");
+      console.log("5. Check browser console for any errors");
+    }, 5000);
+  });
+</script>
 </html>
