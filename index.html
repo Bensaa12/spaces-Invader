@@ -83,12 +83,54 @@
       font-size: 12px;
       z-index: 9999;
     }
+    
+    /* Error message container */
+    #error-container {
+      position: fixed;
+      bottom: 10px;
+      left: 10px;
+      color: white;
+      background-color: rgba(255,0,0,0.7);
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      font-size: 12px;
+      max-width: 80%;
+      z-index: 9999;
+      display: none;
+    }
   </style>
+  
+  <!-- Error handling for script loading -->
+  <script>
+    window.onerror = function(message, source, lineno, colno, error) {
+      console.error("Global error:", message, "at", source, "line", lineno);
+      const errorContainer = document.getElementById('error-container');
+      if (errorContainer) {
+        errorContainer.textContent = "Error: " + message;
+        errorContainer.style.display = 'block';
+      }
+      return false;
+    };
+  </script>
+  
   <!-- Include p5.js library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
   
-  <!-- Include p5.sound library -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/addons/p5.sound.min.js"></script>
+  <!-- Include p5.sound library with error handling -->
+  <script>
+    // Load p5.sound with error handling
+    document.addEventListener('DOMContentLoaded', function() {
+      var soundScript = document.createElement('script');
+      soundScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/addons/p5.sound.min.js';
+      soundScript.onerror = function() {
+        console.error("Failed to load p5.sound.min.js");
+        document.getElementById('sound-status').innerHTML = "ERROR: p5.sound library failed to load";
+        document.getElementById('sound-status').style.backgroundColor = "rgba(255,0,0,0.7)";
+      };
+      document.head.appendChild(soundScript);
+    });
+  </script>
   
   <!-- Include Supabase client library -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
@@ -109,107 +151,153 @@
 <body>
   <!-- p5.js will create the canvas here -->
   <div id="sound-status">Sound: Checking...</div>
+  <div id="error-container"></div>
 </body>
 <script>
-  // Sound file tester
+  // Sound file tester with improved error handling
   window.addEventListener('load', function() {
     console.log("Running sound file accessibility test...");
     let statusDiv = document.getElementById('sound-status');
     let statusText = "Sound files:";
+    
+    // Prevent the test from running indefinitely
+    const globalTimeout = setTimeout(() => {
+      statusDiv.innerHTML = "Sound check timed out";
+      statusDiv.style.backgroundColor = "rgba(255,165,0,0.7)"; // Orange
+      console.warn("Sound file check timed out");
+    }, 10000);
     
     // Check if p5.sound is loaded
     if (typeof p5 === 'undefined') {
       console.error("p5.js not loaded!");
       statusDiv.innerHTML = "ERROR: p5.js not loaded";
       statusDiv.style.backgroundColor = "rgba(255,0,0,0.7)";
+      clearTimeout(globalTimeout);
       return;
     }
     
-    if (typeof p5.SoundFile === 'undefined') {
-      console.error("p5.sound library not loaded!");
-      statusDiv.innerHTML = "ERROR: p5.sound not loaded";
-      statusDiv.style.backgroundColor = "rgba(255,0,0,0.7)";
-      return;
-    }
+    // Wait for p5.sound to load - it's loaded asynchronously now
+    const checkP5Sound = () => {
+      if (typeof p5.SoundFile === 'undefined') {
+        if (window.p5SoundCheckCount === undefined) {
+          window.p5SoundCheckCount = 1;
+        } else {
+          window.p5SoundCheckCount++;
+        }
+        
+        if (window.p5SoundCheckCount > 20) {
+          console.error("p5.sound library failed to load after multiple attempts");
+          statusDiv.innerHTML = "ERROR: p5.sound library not available";
+          statusDiv.style.backgroundColor = "rgba(255,0,0,0.7)";
+          clearTimeout(globalTimeout);
+          return;
+        }
+        
+        // Check again in 500ms
+        setTimeout(checkP5Sound, 500);
+        return;
+      }
+      
+      console.log("p5.sound is available");
+      runSoundFileTests();
+    };
     
-    console.log("p5.sound is available");
+    // Start checking
+    checkP5Sound();
     
-    // Create a sound tester that will check each file
-    function checkSoundFile(path, index) {
-      return new Promise((resolve) => {
-        const audio = new Audio(path);
-        
-        // Set a timeout in case the file never loads or errors
-        const timeout = setTimeout(() => {
-          console.error(`Timeout loading: ${path}`);
-          resolve({ path, status: 'timeout' });
-        }, 5000);
-        
-        audio.addEventListener('canplaythrough', () => {
-          clearTimeout(timeout);
-          console.log(`✅ Sound file accessible: ${path}`);
-          resolve({ path, status: 'success' });
-        });
-        
-        audio.addEventListener('error', (e) => {
-          clearTimeout(timeout);
-          console.error(`❌ Sound file not found: ${path}`, e);
-          resolve({ path, status: 'error' });
-        });
-        
-        // Force load attempt
-        audio.load();
-      });
-    }
-    
-    // List of sound files to test
-    const soundFiles = [
-      'sounds/shoot.mp3', 
-      'sounds/explosion.mp3',
-      'sounds/powerup.mp3',
-      'sounds/gameover.mp3',
-      'sounds/background.mp3'
-    ];
-    
-    // Test sound files in parallel
-    Promise.all(soundFiles.map(checkSoundFile))
-      .then(results => {
-        let successCount = 0;
-        let errorCount = 0;
-        
-        results.forEach(result => {
-          const fileName = result.path.split('/').pop();
-          if (result.status === 'success') {
-            successCount++;
-            statusText += `<br>✅ ${fileName}`;
-          } else {
-            errorCount++;
-            statusText += `<br>❌ ${fileName}`;
+    // Function to run sound file tests once p5.sound is confirmed to be loaded
+    function runSoundFileTests() {
+      // Create a sound tester that will check each file
+      function checkSoundFile(path) {
+        return new Promise((resolve) => {
+          // Use both p5 audio and regular audio to check
+          try {
+            const audio = new Audio(path);
+            
+            // Set a timeout in case the file never loads or errors
+            const timeout = setTimeout(() => {
+              console.error(`Timeout loading: ${path}`);
+              resolve({ path, status: 'timeout' });
+            }, 5000);
+            
+            audio.addEventListener('canplaythrough', () => {
+              clearTimeout(timeout);
+              console.log(`✅ Sound file accessible: ${path}`);
+              resolve({ path, status: 'success' });
+            });
+            
+            audio.addEventListener('error', (e) => {
+              clearTimeout(timeout);
+              console.error(`❌ Sound file not found: ${path}`, e);
+              resolve({ path, status: 'error' });
+            });
+            
+            // Force load attempt
+            audio.load();
+          } catch (e) {
+            console.error(`Error testing sound file ${path}:`, e);
+            resolve({ path, status: 'error' });
           }
         });
-        
-        // Update status display
-        statusDiv.innerHTML = statusText;
-        
-        if (errorCount > 0) {
-          statusDiv.style.backgroundColor = "rgba(255,0,0,0.7)";
-          console.error(`${errorCount} sound files failed to load.`);
-        } else {
-          statusDiv.style.backgroundColor = "rgba(0,128,0,0.7)";
-          console.log("All sound files are accessible");
-          
-          // Auto-hide status after 10 seconds if all files loaded successfully
-          setTimeout(() => {
-            statusDiv.style.opacity = "0.5";
-            
-            // Add click to hide
-            statusDiv.addEventListener('click', function() {
-              this.style.display = 'none';
-            });
-          }, 10000);
-        }
-      });
+      }
       
+      // List of sound files to test
+      const soundFiles = [
+        'sounds/shoot.mp3', 
+        'sounds/explosion.mp3',
+        'sounds/powerup.mp3',
+        'sounds/gameover.mp3',
+        'sounds/background.mp3'
+      ];
+      
+      // Test sound files in parallel
+      Promise.all(soundFiles.map(checkSoundFile))
+        .then(results => {
+          let successCount = 0;
+          let errorCount = 0;
+          
+          results.forEach(result => {
+            const fileName = result.path.split('/').pop();
+            if (result.status === 'success') {
+              successCount++;
+              statusText += `<br>✅ ${fileName}`;
+            } else {
+              errorCount++;
+              statusText += `<br>❌ ${fileName}`;
+            }
+          });
+          
+          // Update status display
+          statusDiv.innerHTML = statusText;
+          
+          if (errorCount > 0) {
+            statusDiv.style.backgroundColor = "rgba(255,0,0,0.7)";
+            console.error(`${errorCount} sound files failed to load.`);
+          } else {
+            statusDiv.style.backgroundColor = "rgba(0,128,0,0.7)";
+            console.log("All sound files are accessible");
+            
+            // Auto-hide status after 10 seconds if all files loaded successfully
+            setTimeout(() => {
+              statusDiv.style.opacity = "0.5";
+              
+              // Add click to hide
+              statusDiv.addEventListener('click', function() {
+                this.style.display = 'none';
+              });
+            }, 10000);
+          }
+          
+          clearTimeout(globalTimeout);
+        })
+        .catch(error => {
+          console.error("Error during sound file testing:", error);
+          statusDiv.innerHTML = "Error testing sound files";
+          statusDiv.style.backgroundColor = "rgba(255,0,0,0.7)";
+          clearTimeout(globalTimeout);
+        });
+    }
+    
     // Add instructions to debug area
     setTimeout(() => {
       console.log("%c📢 SOUND TROUBLESHOOTING TIPS 📢", "font-size: 16px; font-weight: bold; color: #00BFFF;");
