@@ -365,18 +365,71 @@ function updateHTMLButtons() {
 }
 
 function preload() {
-  // Load sound files
-  soundFormats('mp3', 'ogg');
+  // Load sound effects with error handling
+  try {
+    shootSound = loadSound('sounds/shoot.mp3', soundLoaded, soundError);
+    explosionSound = loadSound('sounds/explosion.mp3', soundLoaded, soundError);
+    powerUpSound = loadSound('sounds/powerup.mp3', soundLoaded, soundError);
+    gameOverSound = loadSound('sounds/gameover.mp3', soundLoaded, soundError);
+    backgroundMusic = loadSound('sounds/background.mp3', soundLoaded, soundError);
+    console.log("Attempted to load all sounds");
+  } catch (e) {
+    console.error("Error in preload:", e);
+  }
+}
+
+// Add these callback functions after preload
+function soundLoaded(sound) {
+  console.log("Sound loaded successfully:", sound.url);
+}
+
+function soundError(err) {
+  console.error("Error loading sound:", err);
+}
+
+// Add this diagnostic function after the preload function
+function diagnoseSoundIssues() {
+  console.log("===== SOUND DIAGNOSTIC =====");
+  console.log("soundEnabled:", soundEnabled);
   
-  // Create sounds using p5.sound oscillators (no external files needed)
-  shootSound = new p5.Oscillator('sine');
-  explosionSound = new p5.Oscillator('sawtooth');
-  powerUpSound = new p5.Oscillator('triangle');
-  gameOverSound = new p5.Oscillator('square');
-  levelUpSound = new p5.Oscillator('triangle');
+  // Check if sound objects exist
+  console.log("shootSound exists:", shootSound !== undefined);
+  console.log("explosionSound exists:", explosionSound !== undefined);
+  console.log("powerUpSound exists:", powerUpSound !== undefined);
+  console.log("gameOverSound exists:", gameOverSound !== undefined);
+  console.log("backgroundMusic exists:", backgroundMusic !== undefined);
   
-  // Create background music
-  backgroundMusic = new p5.Oscillator('sine');
+  // Check audio context state
+  if (typeof getAudioContext === 'function') {
+    const audioContext = getAudioContext();
+    console.log("AudioContext state:", audioContext.state);
+    console.log("AudioContext sampleRate:", audioContext.sampleRate);
+  } else {
+    console.log("getAudioContext function not found");
+  }
+  
+  // Try to manually unlock audio
+  console.log("Attempting to unlock audio...");
+  
+  if (typeof getAudioContext === 'function') {
+    getAudioContext().resume().then(() => {
+      console.log("AudioContext resumed successfully");
+      
+      if (backgroundMusic && typeof backgroundMusic.play === 'function') {
+        try {
+          backgroundMusic.play();
+          backgroundMusic.stop();
+          console.log("Successfully played and stopped a test sound");
+        } catch (e) {
+          console.error("Error playing test sound:", e);
+        }
+      }
+    }).catch(err => {
+      console.error("Failed to resume AudioContext:", err);
+    });
+  }
+  
+  console.log("===== END DIAGNOSTIC =====");
 }
 
 function setup() {
@@ -389,6 +442,9 @@ function setup() {
   
   // Initialize sound
   initializeSound();
+  
+  // Add diagnostic after a delay to check sound initialization
+  setTimeout(diagnoseSoundIssues, 2000);
   
   // Initialize Supabase client
   try {
@@ -485,35 +541,92 @@ function setup() {
 
 // Initialize sound effects
 function initializeSound() {
-  // Configure shoot sound
-  shootSound.freq(880);
-  shootSound.amp(0);
-  shootSound.start();
+  soundEnabled = true;
+  volumeLevel = 0.5;
   
-  // Configure explosion sound
-  explosionSound.freq(150);
-  explosionSound.amp(0);
-  explosionSound.start();
+  // Remove any existing sound buttons first
+  let existingBtn = document.getElementById('start-sound-button');
+  if (existingBtn) existingBtn.remove();
   
-  // Configure power-up sound
-  powerUpSound.freq(660);
-  powerUpSound.amp(0);
-  powerUpSound.start();
+  console.log("Initializing sound...");
   
-  // Configure game over sound
-  gameOverSound.freq(220);
-  gameOverSound.amp(0);
-  gameOverSound.start();
+  // Create a very prominent button for enabling sound
+  let startSoundBtn = document.createElement('button');
+  startSoundBtn.id = 'start-sound-button';
+  startSoundBtn.innerHTML = '🔊 CLICK HERE TO ENABLE SOUND';
+  startSoundBtn.style.position = 'fixed';
+  startSoundBtn.style.top = '50%';
+  startSoundBtn.style.left = '50%';
+  startSoundBtn.style.transform = 'translate(-50%, -50%)';
+  startSoundBtn.style.padding = '20px 40px';
+  startSoundBtn.style.backgroundColor = '#FF3366';
+  startSoundBtn.style.color = 'white';
+  startSoundBtn.style.border = 'none';
+  startSoundBtn.style.borderRadius = '5px';
+  startSoundBtn.style.fontSize = '24px';
+  startSoundBtn.style.fontWeight = 'bold';
+  startSoundBtn.style.cursor = 'pointer';
+  startSoundBtn.style.zIndex = '9999';
+  startSoundBtn.style.boxShadow = '0 0 20px rgba(255,255,255,0.5)';
   
-  // Configure level up sound
-  levelUpSound.freq(440);
-  levelUpSound.amp(0);
-  levelUpSound.start();
+  startSoundBtn.addEventListener('click', function() {
+    console.log("Sound button clicked!");
+    
+    if (typeof getAudioContext === 'function') {
+      let context = getAudioContext();
+      if (context.state !== 'running') {
+        context.resume().then(() => {
+          console.log("AudioContext resumed successfully");
+          
+          // Force play a silent sound to unlock audio on iOS
+          if (shootSound) {
+            try {
+              shootSound.setVolume(0.01);
+              shootSound.play();
+              setTimeout(() => {
+                if (shootSound.isPlaying()) shootSound.stop();
+                shootSound.setVolume(0.5 * volumeLevel);
+              }, 100);
+              console.log("Test sound played");
+            } catch (e) {
+              console.error("Error playing test sound:", e);
+            }
+          }
+          
+          // Test background music
+          if (backgroundMusic) {
+            try {
+              backgroundMusic.setVolume(0.05 * volumeLevel);
+              if (gameState === "playing") {
+                backgroundMusic.loop();
+              }
+              console.log("Background music initialized");
+            } catch (e) {
+              console.error("Error with background music:", e);
+            }
+          }
+        });
+      }
+    }
+    
+    // Remove the button
+    this.remove();
+    
+    // Run diagnostic after a short delay
+    setTimeout(diagnoseSoundIssues, 500);
+  });
   
-  // Configure background music
-  backgroundMusic.freq(220);
-  backgroundMusic.amp(0.05 * volumeLevel);
-  backgroundMusic.start();
+  document.body.appendChild(startSoundBtn);
+  
+  // Try auto-unlocking for non-iOS browsers
+  if (typeof getAudioContext === 'function') {
+    window.addEventListener('click', function unlockAudio() {
+      getAudioContext().resume().then(() => {
+        console.log("AudioContext resumed by click");
+      });
+      window.removeEventListener('click', unlockAudio);
+    }, { once: true });
+  }
 }
 
 // Update volume based on slider
@@ -527,33 +640,65 @@ function updateVolume() {
 }
 
 // Play a sound with attack and release
-function playSound(oscillator, frequency, duration = 0.2, amplitude = 0.2) {
-  if (!soundEnabled) return;
+function playSound(sound, frequency = 440, amp = 0.5, duration = 0.5) {
+  if (!soundEnabled) {
+    return;
+  }
   
-  // Apply volume level to amplitude
-  const adjustedAmplitude = amplitude * volumeLevel;
+  if (!sound) {
+    console.warn("Attempted to play undefined sound");
+    return;
+  }
   
-  oscillator.freq(frequency);
-  oscillator.amp(adjustedAmplitude, 0.05); // Attack
-  
-  // Release
-  setTimeout(() => {
-    oscillator.amp(0, 0.1);
-  }, duration * 1000);
+  try {
+    if (sound.isPlaying()) {
+      sound.stop();
+    }
+    sound.play();
+    sound.setVolume(amp * volumeLevel);
+    return true; // Successfully played
+  } catch (e) {
+    console.error("Error playing sound:", e);
+    
+    // Try to diagnose common issues
+    if (typeof getAudioContext === 'function') {
+      const ctx = getAudioContext();
+      if (ctx.state !== 'running') {
+        console.warn("AudioContext not running, state:", ctx.state);
+      }
+    }
+    
+    return false;
+  }
 }
 
 // Toggle sound on/off
 function toggleSound() {
   soundEnabled = !soundEnabled;
   
+  console.log("Sound toggled:", soundEnabled ? "ON" : "OFF");
+  
   if (soundEnabled) {
     soundToggleButton.html('🔊');
-    backgroundMusic.amp(0.05 * volumeLevel, 0.5);
-    // Play a test sound to confirm audio is working
-    playSound(powerUpSound, 660, 0.3, 0.2);
+    if (gameState === "playing" && backgroundMusic) {
+      try {
+        backgroundMusic.loop();
+        backgroundMusic.setVolume(0.05 * volumeLevel);
+        console.log("Background music started");
+      } catch (e) {
+        console.error("Error starting background music:", e);
+      }
+    }
   } else {
     soundToggleButton.html('🔇');
-    backgroundMusic.amp(0, 0.5);
+    if (backgroundMusic && backgroundMusic.isPlaying()) {
+      try {
+        backgroundMusic.pause();
+        console.log("Background music paused");
+      } catch (e) {
+        console.error("Error pausing background music:", e);
+      }
+    }
   }
 }
 
