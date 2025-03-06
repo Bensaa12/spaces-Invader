@@ -408,27 +408,7 @@ function diagnoseSoundIssues() {
     console.log("getAudioContext function not found");
   }
   
-  // Try to manually unlock audio
-  console.log("Attempting to unlock audio...");
-  
-  if (typeof getAudioContext === 'function') {
-    getAudioContext().resume().then(() => {
-      console.log("AudioContext resumed successfully");
-      
-      if (backgroundMusic && typeof backgroundMusic.play === 'function') {
-        try {
-          backgroundMusic.play();
-          backgroundMusic.stop();
-          console.log("Successfully played and stopped a test sound");
-        } catch (e) {
-          console.error("Error playing test sound:", e);
-        }
-      }
-    }).catch(err => {
-      console.error("Failed to resume AudioContext:", err);
-    });
-  }
-  
+  // DO NOT try to play sounds here - that can cause freezing
   console.log("===== END DIAGNOSTIC =====");
 }
 
@@ -569,64 +549,99 @@ function initializeSound() {
   startSoundBtn.style.zIndex = '9999';
   startSoundBtn.style.boxShadow = '0 0 20px rgba(255,255,255,0.5)';
   
+  // Add a failsafe timeout to prevent the button from being stuck if something goes wrong
+  let soundInitializationTimeout;
+  
   startSoundBtn.addEventListener('click', function() {
     console.log("Sound button clicked!");
     
+    // Add a loading indicator to the button
+    this.innerHTML = '🔊 INITIALIZING SOUND...';
+    this.style.backgroundColor = '#666666';
+    
+    // Set a timeout to prevent hanging
+    soundInitializationTimeout = setTimeout(() => {
+      console.warn("Sound initialization took too long - enabling failsafe mode");
+      document.getElementById('sound-status').innerHTML = "Sound initialization failed - game will continue without sound";
+      document.getElementById('sound-status').style.backgroundColor = "rgba(255,165,0,0.7)"; // Orange
+      soundEnabled = false;
+      this.remove();
+    }, 5000); // 5 second timeout
+    
+    // Step 1: Resume audio context - this is the most essential part
     if (typeof getAudioContext === 'function') {
       let context = getAudioContext();
-      if (context.state !== 'running') {
-        context.resume().then(() => {
-          console.log("AudioContext resumed successfully");
-          
-          // Force play a silent sound to unlock audio on iOS
-          if (shootSound) {
-            try {
-              shootSound.setVolume(0.01);
-              shootSound.play();
-              setTimeout(() => {
-                if (shootSound.isPlaying()) shootSound.stop();
-                shootSound.setVolume(0.5 * volumeLevel);
-              }, 100);
-              console.log("Test sound played");
-            } catch (e) {
-              console.error("Error playing test sound:", e);
+      context.resume().then(() => {
+        console.log("AudioContext resumed successfully");
+        
+        // Step 2: Mark the button as successful and remove it
+        clearTimeout(soundInitializationTimeout);
+        this.remove();
+        
+        // Step 3: Diagnostic in a non-blocking way
+        setTimeout(() => {
+          try {
+            console.log("Running non-blocking sound checks...");
+            let statusDiv = document.getElementById('sound-status');
+            
+            // Display sound state
+            if (shootSound) {
+              statusDiv.innerHTML = "Shoot sound loaded - click to play";
+              statusDiv.style.backgroundColor = "rgba(0,128,0,0.7)"; // Green
+              statusDiv.style.cursor = "pointer";
+              
+              // Add a test play option
+              statusDiv.addEventListener('click', () => {
+                try {
+                  shootSound.setVolume(0.2 * volumeLevel);
+                  shootSound.play();
+                  statusDiv.innerHTML = "Sound test successful!";
+                  setTimeout(() => {
+                    statusDiv.style.opacity = "0.5";
+                  }, 3000);
+                } catch (e) {
+                  console.error("Error playing test sound on click:", e);
+                  statusDiv.innerHTML = "Sound test failed";
+                  statusDiv.style.backgroundColor = "rgba(255,0,0,0.7)"; // Red
+                }
+              });
+            } else {
+              statusDiv.innerHTML = "Sound files not loaded correctly";
+              statusDiv.style.backgroundColor = "rgba(255,0,0,0.7)"; // Red
             }
+          } catch (e) {
+            console.error("Error in sound diagnostics:", e);
           }
-          
-          // Test background music
-          if (backgroundMusic) {
-            try {
-              backgroundMusic.setVolume(0.05 * volumeLevel);
-              if (gameState === "playing") {
-                backgroundMusic.loop();
-              }
-              console.log("Background music initialized");
-            } catch (e) {
-              console.error("Error with background music:", e);
-            }
-          }
-        });
-      }
+        }, 1000);
+      }).catch(err => {
+        // Handle audio context resume failure
+        console.error("Failed to resume AudioContext:", err);
+        clearTimeout(soundInitializationTimeout);
+        soundEnabled = false;
+        this.innerHTML = '❌ SOUND DISABLED';
+        this.style.backgroundColor = '#FF3333';
+        
+        // Auto-remove after 3 seconds
+        setTimeout(() => {
+          this.remove();
+        }, 3000);
+      });
+    } else {
+      // Browser doesn't support AudioContext
+      console.error("getAudioContext function not found");
+      clearTimeout(soundInitializationTimeout);
+      soundEnabled = false;
+      this.innerHTML = '❌ SOUND NOT SUPPORTED';
+      this.style.backgroundColor = '#FF3333';
+      
+      // Auto-remove after 3 seconds
+      setTimeout(() => {
+        this.remove();
+      }, 3000);
     }
-    
-    // Remove the button
-    this.remove();
-    
-    // Run diagnostic after a short delay
-    setTimeout(diagnoseSoundIssues, 500);
   });
   
   document.body.appendChild(startSoundBtn);
-  
-  // Try auto-unlocking for non-iOS browsers
-  if (typeof getAudioContext === 'function') {
-    window.addEventListener('click', function unlockAudio() {
-      getAudioContext().resume().then(() => {
-        console.log("AudioContext resumed by click");
-      });
-      window.removeEventListener('click', unlockAudio);
-    }, { once: true });
-  }
 }
 
 // Update volume based on slider
@@ -642,29 +657,36 @@ function updateVolume() {
 // Play a sound with attack and release
 function playSound(sound, frequency = 440, amp = 0.5, duration = 0.5) {
   if (!soundEnabled) {
-    return;
+    return false;
   }
   
   if (!sound) {
-    console.warn("Attempted to play undefined sound");
-    return;
+    // console.warn("Attempted to play undefined sound"); // Commented out to reduce console spam
+    return false;
   }
   
   try {
+    // Check if the sound is ready to play
+    if (!sound.isLoaded()) {
+      // console.warn("Sound not loaded yet"); // Commented out to reduce console spam
+      return false;
+    }
+    
     if (sound.isPlaying()) {
       sound.stop();
     }
-    sound.play();
     sound.setVolume(amp * volumeLevel);
+    sound.play();
     return true; // Successfully played
   } catch (e) {
     console.error("Error playing sound:", e);
     
-    // Try to diagnose common issues
-    if (typeof getAudioContext === 'function') {
-      const ctx = getAudioContext();
-      if (ctx.state !== 'running') {
-        console.warn("AudioContext not running, state:", ctx.state);
+    // If there's an error playing sound, disable it to prevent further errors
+    if (e.toString().includes("play() failed")) {
+      console.warn("Disabling sound due to playback issues");
+      soundEnabled = false;
+      if (soundToggleButton) {
+        soundToggleButton.html('🔇');
       }
     }
     
