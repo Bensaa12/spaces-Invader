@@ -367,14 +367,31 @@ function updateHTMLButtons() {
 function preload() {
   // Load sound effects with error handling
   try {
-    shootSound = loadSound('sounds/shoot.mp3', soundLoaded, soundError);
-    explosionSound = loadSound('sounds/explosion.mp3', soundLoaded, soundError);
-    powerUpSound = loadSound('sounds/powerup.mp3', soundLoaded, soundError);
-    gameOverSound = loadSound('sounds/gameover.mp3', soundLoaded, soundError);
-    backgroundMusic = loadSound('sounds/background.mp3', soundLoaded, soundError);
+    shootSound = loadSound('sounds/shoot.mp3', 
+      () => console.log("Shoot sound loaded"), 
+      (err) => console.error("Error loading shoot sound:", err));
+    
+    explosionSound = loadSound('sounds/explosion.mp3', 
+      () => console.log("Explosion sound loaded"), 
+      (err) => console.error("Error loading explosion sound:", err));
+    
+    powerUpSound = loadSound('sounds/powerup.mp3', 
+      () => console.log("Power-up sound loaded"), 
+      (err) => console.error("Error loading power-up sound:", err));
+    
+    gameOverSound = loadSound('sounds/gameover.mp3', 
+      () => console.log("Game over sound loaded"), 
+      (err) => console.error("Error loading game over sound:", err));
+    
+    backgroundMusic = loadSound('sounds/background.mp3', 
+      () => console.log("Background music loaded"), 
+      (err) => console.error("Error loading background music:", err));
+    
     console.log("Attempted to load all sounds");
   } catch (e) {
     console.error("Error in preload:", e);
+    // Set soundEnabled to false to prevent further errors
+    soundEnabled = false;
   }
 }
 
@@ -530,6 +547,11 @@ function initializeSound() {
   
   console.log("Initializing sound...");
   
+  // First check if any sounds failed to load
+  if (!backgroundMusic || !shootSound || !explosionSound || !powerUpSound || !gameOverSound) {
+    console.warn("Some sound files failed to load, using fallback mode");
+  }
+  
   // Create a very prominent button for enabling sound
   let startSoundBtn = document.createElement('button');
   startSoundBtn.id = 'start-sound-button';
@@ -578,36 +600,42 @@ function initializeSound() {
         clearTimeout(soundInitializationTimeout);
         this.remove();
         
-        // Step 3: Diagnostic in a non-blocking way
+        // Step 3: Try to play a test sound in a safe way
+        if (shootSound && shootSound.isLoaded() && typeof shootSound.play === 'function') {
+          try {
+            shootSound.setVolume(0.01);
+            shootSound.play();
+            setTimeout(() => {
+              if (shootSound.isPlaying && shootSound.isPlaying()) {
+                shootSound.stop();
+              }
+            }, 100);
+            console.log("Test sound played successfully");
+          } catch (e) {
+            console.error("Error playing test sound:", e);
+            // Don't disable sound yet, maybe other sounds will work
+          }
+        } else {
+          console.warn("Shoot sound not available for testing");
+        }
+        
+        // Step 4: Diagnostic in a non-blocking way
         setTimeout(() => {
           try {
             console.log("Running non-blocking sound checks...");
             let statusDiv = document.getElementById('sound-status');
             
             // Display sound state
-            if (shootSound) {
-              statusDiv.innerHTML = "Shoot sound loaded - click to play";
+            if (shootSound && shootSound.isLoaded()) {
+              statusDiv.innerHTML = "Sound initialized - Game ready!";
               statusDiv.style.backgroundColor = "rgba(0,128,0,0.7)"; // Green
-              statusDiv.style.cursor = "pointer";
-              
-              // Add a test play option
-              statusDiv.addEventListener('click', () => {
-                try {
-                  shootSound.setVolume(0.2 * volumeLevel);
-                  shootSound.play();
-                  statusDiv.innerHTML = "Sound test successful!";
-                  setTimeout(() => {
-                    statusDiv.style.opacity = "0.5";
-                  }, 3000);
-                } catch (e) {
-                  console.error("Error playing test sound on click:", e);
-                  statusDiv.innerHTML = "Sound test failed";
-                  statusDiv.style.backgroundColor = "rgba(255,0,0,0.7)"; // Red
-                }
-              });
+              // Auto-hide after 5 seconds
+              setTimeout(() => {
+                statusDiv.style.opacity = "0.5";
+              }, 5000);
             } else {
-              statusDiv.innerHTML = "Sound files not loaded correctly";
-              statusDiv.style.backgroundColor = "rgba(255,0,0,0.7)"; // Red
+              statusDiv.innerHTML = "Sound partially initialized";
+              statusDiv.style.backgroundColor = "rgba(255,165,0,0.7)"; // Orange
             }
           } catch (e) {
             console.error("Error in sound diagnostics:", e);
@@ -897,9 +925,14 @@ function drawStartScreen() {
     shipX + shipSize/4, shipY + shipSize/2
   );
   
-  // Play a gentle background tone
-  if (frameCount % 60 === 0 && soundEnabled) {
-    backgroundMusic.freq(220 + sin(frameCount * 0.01) * 20);
+  // Now we'll simply play the background music if it's not already playing
+  if (soundEnabled && backgroundMusic && !backgroundMusic.isPlaying() && frameCount % 60 === 0) {
+    try {
+      backgroundMusic.setVolume(0.05 * volumeLevel);
+      backgroundMusic.loop();
+    } catch (e) {
+      console.error("Error starting background music:", e);
+    }
   }
 }
 
